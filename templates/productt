@@ -1,0 +1,193 @@
+ {% include "navbar.html" %}
+
+<body>
+
+    <div class="mt-5 pt-4">
+    {% if messages %}
+        {% for message in messages %}
+        <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
+          {{ message }}
+          <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+            <span aria-hidden="true">&times;</span>
+          </button>
+        </div>
+        {% endfor %}
+    {% endif %}
+    </div>
+ 
+ 
+ 
+ {% block extra_body %}
+    {% endblock %}
+
+    {% include "footer.html" %}
+    {% include "scripts.html" %}
+
+    {% block extra_scripts %}
+    {% endblock extra_scripts %}-->
+
+MODEL
+
+from django.db import models
+
+from django.db.models.signals import post_save
+from django.conf import settings
+
+from django.db.models import Sum
+from django.shortcuts import reverse
+from django_countries.fields import CountryField
+
+
+# Create your models here.
+
+
+CATEGORY_CHOICES = ( ('S', 'Shirt'),
+    ('SW', 'Sport wear'),
+    ('OW', 'Outwear')
+)
+
+LABEL_CHOICES = (
+    ('P', 'primary'),
+    ('S', 'secondary'),
+    ('D', 'danger')
+)
+
+ADDRESS_CHOICES = (
+    ('B', 'Billing'),
+    ('S', 'Shipping'),
+)
+
+
+
+
+
+class Item(models.Model):
+    title = models.CharField(max_length=100)
+    price = models.FloatField()
+    discount_price = models.FloatField(blank=True, null=True)
+    category = models.CharField(choices=CATEGORY_CHOICES, max_length=2)
+    label = models.CharField(choices=LABEL_CHOICES, max_length=1)
+    slug = models.SlugField()
+    description = models.TextField()
+    image = models.ImageField(upload_to="pic")
+
+    def __str__(self):
+        return self.title
+
+    def get_absolute_url(self):
+        return reverse("core:product", kwargs={
+            'slug': self.slug
+        })
+
+    def get_add_to_cart_url(self):
+       return reverse("core:add-to-cart", kwargs={
+            'slug': self.slug
+        })
+
+    #def get_remove_from_cart_url(self):
+    #    return reverse("core:remove-from-cart", kwargs={
+     #       'slug': self.slug
+     #   })
+
+
+class OrderItem(models.Model):
+   # user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+   # ordered = models.BooleanField(default=False)
+    item = models.ForeignKey(Item, on_delete=models.CASCADE)
+    quantity = models.IntegerField(default=1)
+
+    def __str__(self):
+        return f"{self.quantity} of {self.item.title}"
+
+   
+
+class Order(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL,on_delete=models.CASCADE)
+    #ref_code = models.CharField(max_length=20, blank=True, null=True)
+    items = models.ManyToManyField(OrderItem)
+    start_date = models.DateTimeField(auto_now_add=True)
+    ordered_date = models.DateTimeField()
+    ordered = models.BooleanField(default=False)
+   
+
+
+VIEW
+
+
+from django.conf import settings
+from django.contrib import messages
+from django.core.exceptions import ObjectDoesNotExist
+from django.contrib.auth.decorators import login_required
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.shortcuts import render, get_object_or_404
+from django.views.generic import ListView ,DetailView ,View 
+#from django.views.generic.detail import  DetailView
+#from django.views.generic import  View
+from django.shortcuts import redirect
+from django.utils import timezone
+#from .forms import CheckoutForm, CouponForm, RefundForm, PaymentForm
+from .models import Item, OrderItem
+import random
+import string
+import stripe
+# Create your views here.
+
+#stripe.api_key = settings.STRIPE_SECRET_KEY
+
+#def create_ref_code():
+ #   return ''.join(random.choices(string.ascii_lowercase + string.digits, k=20))
+
+
+def products(request):
+    context = {
+        'items': Item.objects.all()
+    }
+    return render(request, "product.html", context)
+
+#def is_valid_form(values):
+ #   valid = True
+  #  for field in values:
+   #     if field == '':
+            valid = False
+    #return valid
+
+
+class HomeView(ListView):
+    model = Item
+    #paginate_by = 10
+    template_name = "home-page.html"   
+
+
+#def Home(request):
+#    context = {
+#        'items': Item.objects.all()
+ #   }
+ #   return render(request ,'hommy.html' ,context)     
+
+
+class ItemDetailView(DetailView):
+    model = Item
+    template_name = "product.html"    
+
+
+
+
+def add_to_cart(request ,slug):
+    item =get_object_or_404(Item ,slug =slug) # using get_obj ,taking item ,and the slug-id
+    order_item =OrderItem.objects.create(item =item) # item fro get_obj is passed to item 
+    order_qs = Order.objects.filter(user =request.user ,is_ordered =False) #user exist ,iorder =no
+    if order_qs.exist():
+        order =order_qs[0]
+        if order.items.filter(item__slug =item.slug).exist(): # if it already exists in the cart
+            order_item.quantity +=1
+            order_item.save()
+
+        else:
+            order.item.add(order_item)    
+
+    else:
+        order_date =timezone.now()
+        order =Order.objects.create(user= request.user ,order_date =order_date)
+        order.items.add(order_item) 
+    return redirect("core:product", slug =slug)           
+
